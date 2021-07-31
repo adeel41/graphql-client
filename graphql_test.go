@@ -10,7 +10,26 @@ import (
 	"github.com/adeel41/graphql-client"
 )
 
-func TestClient_InternalServerError_ReturnsError(t *testing.T) {
+func TestClient_JsonEncodingError_ReturnsError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
+		mustWrite(w, "{{invalid jon}}")
+	})
+
+	client := graphql.NewClient("/graphql", &http.Client{
+		Transport: localRoundTripper{handler: mux},
+	})
+	resp, err := client.RawRequest(context.Background(), "", nil)
+	if err == nil {
+		t.Error("An error should have returned because of invalid json")
+	}
+
+	if resp != nil {
+		t.Error("Returned response shoould have been nil because of invalid json")
+	}
+}
+
+func TestClient_GraphQLServerError_ReturnsError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -21,13 +40,16 @@ func TestClient_InternalServerError_ReturnsError(t *testing.T) {
 	})
 	resp, err := client.RawRequest(context.Background(), "", nil)
 	if err == nil {
-		t.Error("Should have received an error")
-		t.Failed()
+		t.Error("An error should have returned when GraphQL server returned an error")
+	}
+
+	if resp == nil {
+		t.Error("Response object is nil")
+		t.FailNow()
 	}
 
 	if resp.StatusCode != 500 {
 		t.Errorf("Should have set the status code. Expected %d but received %d", 500, resp.StatusCode)
-		t.Failed()
 	}
 }
 
