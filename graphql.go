@@ -29,10 +29,7 @@ func NewClient(url string, httpClient *http.Client) *Client {
 	}
 }
 
-func (c *Client) RawRequest(ctx context.Context, query string, variables map[string]interface{}) (*HttpResponse, error) {
-	serverErrorResponse := &HttpResponse{
-		StatusCode: 500,
-	}
+func (c *Client) RawRequest(ctx context.Context, query string, variables map[string]interface{}) (*GraphQLResponse, error) {
 	requestData := struct {
 		Query     string                 `json:"query"`
 		Variables map[string]interface{} `json:"variables,omitempty"`
@@ -45,28 +42,59 @@ func (c *Client) RawRequest(ctx context.Context, query string, variables map[str
 	encoder := json.NewEncoder(&buf)
 	err := encoder.Encode(requestData)
 	if err != nil {
-		return serverErrorResponse, err
+		return nil, err
 	}
 
-	resp, err := ctxhttp.Post(ctx, c.httpClient, c.url, "application/json", &buf)
+	responseContent, err := ctxhttp.Post(ctx, c.httpClient, c.url, "application/json", &buf)
 	if err != nil {
-		return serverErrorResponse, err
+		return &GraphQLResponse{
+			StatusCode: responseContent.StatusCode,
+		}, err
+	}
+	defer responseContent.Body.Close()
+
+	body, _ := ioutil.ReadAll(responseContent.Body)
+	if responseContent.StatusCode != http.StatusOK {
+		return &GraphQLResponse{
+			StatusCode:      responseContent.StatusCode,
+			ResponseContent: body,
+		}, fmt.Errorf("non-200 OK status code: %v body: %q", responseContent.Status, body)
 	}
 
-	defer resp.Body.Close()
-	body, _ := ioutil.ReadAll(resp.Body)
-	serverErrorResponse.StatusCode = resp.StatusCode
-	if resp.StatusCode != http.StatusOK {
-		return serverErrorResponse, fmt.Errorf("non-200 OK status code: %v body: %q", resp.Status, body)
+	result, err := decodeGraphQLResponse(body)
+	if err != nil {
+		return nil, err
 	}
 
-	return &HttpResponse{
-		StatusCode: resp.StatusCode,
-		Data:       body,
-	}, nil
+	result.StatusCode = responseContent.StatusCode
+	result.ResponseContent = body
+	return result, nil
 }
 
-type HttpResponse struct {
-	StatusCode int
-	Data       []byte
+func decodeGraphQLResponse(data []byte) (*GraphQLResponse, error) {
+	reader := bytes.NewReader(data)
+	decoder := json.NewDecoder(reader)
+	resp := &GraphQLResponse{}
+	err := decoder.Decode(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+type GraphQLResponse struct {
+	StatusCode      int
+	ResponseContent []byte
+	Data            *json.RawMessage
+	Errors          GraphQLError
+	Extensions      *json.RawMessage
+}
+
+type GraphQLError []struct {
+	Message   string
+	Locations []struct {
+		Line   int
+		Column int
+	}
 }
