@@ -53,6 +53,31 @@ func TestClient_GraphQLServerError_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestClient_GraphQLServerReturnsData_ReturnsSuccess(t *testing.T) {
+	expectedResponse := string(`{"data": { "me": { "id": "123456"} } }`)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
+		mustWrite(w, expectedResponse)
+	})
+
+	client := graphql.NewClient("/graphql", &http.Client{
+		Transport: localRoundTripper{handler: mux},
+	})
+	resp, err := client.RawRequest(context.Background(), "query { me { id } }", nil)
+	if err != nil {
+		t.Error("Should have returned a nil error")
+	}
+	if resp.StatusCode != 200 {
+		t.Error("Should have returned a success error code")
+	}
+
+	content := string(resp.ResponseContent)
+	if content != expectedResponse {
+		t.Errorf("Expected %s but received %s", expectedResponse, content)
+	}
+	t.Log(content)
+}
+
 type localRoundTripper struct {
 	handler http.Handler
 }
