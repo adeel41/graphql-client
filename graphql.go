@@ -6,27 +6,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
-	"os"
 
+	"github.com/go-logr/logr"
 	"golang.org/x/net/context/ctxhttp"
 )
-
-var logger *log.Logger
-
-func init() {
-	logger = log.New(os.Stderr, "graphql-client", log.Ldate|log.Ltime|log.Lshortfile)
-}
 
 // Client is a client for interacting with a GraphQL API.
 type Client struct {
 	url        string
 	httpClient *http.Client
+	logger     *logr.Logger
 }
 
 // NewClient makes a new Client capable of making GraphQL requests.
-func NewClient(url string, httpClient *http.Client) *Client {
+func NewClient(url string, httpClient *http.Client, logger *logr.Logger) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -34,6 +28,7 @@ func NewClient(url string, httpClient *http.Client) *Client {
 	return &Client{
 		url:        url,
 		httpClient: httpClient,
+		logger:     logger,
 	}
 }
 
@@ -53,12 +48,16 @@ func (c *Client) RawRequest(ctx context.Context, query string, variables map[str
 		return nil, err
 	}
 
-	logger.Printf("[POST] %v\r\n%q\r\n", c.url, buf.Bytes())
+	logger := c.logger
+
+	logger.Info("[POST] graphql request", "url", c.url)
+	logger.V(1).Info("data sent in request", "data", fmt.Sprintf("%q", buf.Bytes()))
 	responseContent, err := ctxhttp.Post(ctx, c.httpClient, c.url, "application/json", &buf)
 	var errBody []byte
 	if err != nil {
 		errBody, _ = ioutil.ReadAll(responseContent.Body)
-		logger.Printf("%v status code. %q\r\n%s\r\n", responseContent.Status, err.Error(), errBody)
+		logger.Error(err, "error returned from graphql request", "status", responseContent.Status)
+		logger.V(1).Info("response data received", "body", string(errBody))
 		return &GraphQLResponse{
 			StatusCode: responseContent.StatusCode,
 		}, err
@@ -73,22 +72,27 @@ func (c *Client) RawRequest(ctx context.Context, query string, variables map[str
 	}
 
 	if responseContent.StatusCode != http.StatusOK {
-		errString := fmt.Sprintf("%v status code\r\n%s", responseContent.Status, body)
-		logger.Println(errString)
+
+		err := fmt.Errorf("%v", responseContent.Status)
+		logger.Error(err, "graphql returned a non-200 response", "status code", responseContent.StatusCode)
+		logger.V(1).Info("response data received", "body", string(body))
 		return &GraphQLResponse{
 			StatusCode:      responseContent.StatusCode,
 			ResponseContent: body,
-		}, fmt.Errorf(errString)
+		}, err
 	}
 
 	result, err := decodeGraphQLResponse(body)
 	if err != nil {
-		logger.Printf("response decoding error: %s\r\n", err.Error())
+		logger.Error(err, "error while decoding graphql response")
+		logger.V(1).Info("json data", "data", string(body))
 		return nil, err
 	}
 
 	result.StatusCode = responseContent.StatusCode
 	result.ResponseContent = body
+	logger.Info("success", "status code", responseContent.StatusCode)
+	logger.V(1).Info("response content", "content", string(body))
 	return result, nil
 }
 

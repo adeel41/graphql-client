@@ -3,22 +3,33 @@ package graphql_test
 import (
 	"context"
 	"io"
+	stdlog "log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/adeel41/graphql-client"
+	"github.com/go-logr/stdr"
 )
 
-func TestClient_JsonEncodingError_ReturnsError(t *testing.T) {
+func createClient(handler func(http.ResponseWriter, *http.Request)) *graphql.Client {
+	stdr.SetVerbosity(0)
+	log := stdr.NewWithOptions(stdlog.New(os.Stderr, "", stdlog.LstdFlags), stdr.Options{LogCaller: stdr.All})
+	log = log.WithName("MyName")
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
+	mux.HandleFunc("/graphql", handler)
+	return graphql.NewClient("/graphql", &http.Client{
+		Transport: localRoundTripper{handler: mux},
+	}, &log)
+}
+
+func TestClient_JsonEncodingError_ReturnsError(t *testing.T) {
+	client := createClient(func(w http.ResponseWriter, req *http.Request) {
 		mustWrite(w, "{{invalid jon}}")
 	})
 
-	client := graphql.NewClient("/graphql", &http.Client{
-		Transport: localRoundTripper{handler: mux},
-	})
 	resp, err := client.RawRequest(context.Background(), "", nil)
 	if err == nil {
 		t.Error("An error should have returned because of invalid json")
@@ -30,14 +41,10 @@ func TestClient_JsonEncodingError_ReturnsError(t *testing.T) {
 }
 
 func TestClient_GraphQLServerError_ReturnsError(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
+	client := createClient(func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	})
 
-	client := graphql.NewClient("/graphql", &http.Client{
-		Transport: localRoundTripper{handler: mux},
-	})
 	resp, err := client.RawRequest(context.Background(), "", nil)
 	if err == nil {
 		t.Error("An error should have returned when GraphQL server returned an error")
@@ -55,14 +62,10 @@ func TestClient_GraphQLServerError_ReturnsError(t *testing.T) {
 
 func TestClient_GraphQLServerReturnsData_ReturnsSuccess(t *testing.T) {
 	expectedResponse := string(`{"data": { "me": { "id": "123456"} } }`)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
+	client := createClient(func(w http.ResponseWriter, req *http.Request) {
 		mustWrite(w, expectedResponse)
 	})
 
-	client := graphql.NewClient("/graphql", &http.Client{
-		Transport: localRoundTripper{handler: mux},
-	})
 	resp, err := client.RawRequest(context.Background(), "query { me { id } }", nil)
 	if err != nil {
 		t.Error("Should have returned a nil error")
