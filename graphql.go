@@ -53,14 +53,21 @@ func (c *Client) RawRequest(ctx context.Context, query string, variables map[str
 	logger.Info("[POST] graphql request", "url", c.url)
 	logger.V(1).Info("data sent in request", "data", fmt.Sprintf("%q", buf.Bytes()))
 	responseContent, err := ctxhttp.Post(ctx, c.httpClient, c.url, "application/json", &buf)
+
 	var errBody []byte
 	if err != nil {
-		errBody, _ = ioutil.ReadAll(responseContent.Body)
-		logger.Error(err, "error returned from graphql request", "status", responseContent.Status)
-		logger.V(1).Info("response data received", "body", string(errBody))
-		return &GraphQLResponse{
-			StatusCode: responseContent.StatusCode,
-		}, err
+		if responseContent != nil {
+			errBody, _ = ioutil.ReadAll(responseContent.Body)
+			logger.Error(err, "error returned from graphql request", "status", responseContent.Status)
+			logger.V(1).Info("response data received", "body", string(errBody))
+			return &GraphQLResponse{
+				StatusCode: responseContent.StatusCode,
+			}, err
+		} else {
+			logger.Error(err, "Error in graphql request")
+			logger.V(1).Info("Request", "url", c.url, "data", buf.String())
+			return nil, err
+		}
 	}
 	defer responseContent.Body.Close()
 

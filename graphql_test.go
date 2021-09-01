@@ -16,7 +16,7 @@ import (
 func createClient(handler func(http.ResponseWriter, *http.Request)) *graphql.Client {
 	stdr.SetVerbosity(0)
 	log := stdr.NewWithOptions(stdlog.New(os.Stderr, "", stdlog.LstdFlags), stdr.Options{LogCaller: stdr.All})
-	log = log.WithName("MyName")
+	log = log.WithName("tests")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/graphql", handler)
