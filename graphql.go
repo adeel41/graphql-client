@@ -65,7 +65,7 @@ func (c *Client) RawRequest(ctx context.Context, query string, variables map[str
 			}, err
 		} else {
 			logger.Error(err, "Error in graphql request")
-			logger.V(1).Info("Request body", "data", buf.String())
+			logger.V(1).Info("Request", "url", c.url, "data", buf.String())
 			return nil, err
 		}
 	}
